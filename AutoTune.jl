@@ -24,6 +24,9 @@ using ProgressLogging
 # ╔═╡ bbd3d94e-c8d1-4cdd-8330-9b4003792f5a
 using Statistics: mean
 
+# ╔═╡ c15b83ea-a4e0-440e-bab0-a61c9ee478f7
+using DiffResults: DiffResult
+
 # ╔═╡ 162622ba-dcf8-4e81-9726-da2ffc311ccc
 md"""
 # AutoTune.jl
@@ -37,7 +40,7 @@ md"""
 html"<button onclick='present()'>present</button>"
 
 # ╔═╡ 748cd332-07fe-4095-8138-f7bbf8634506
-test_range = -5:0.5:5;
+test_range = 1e-2:3e-2:1 ;
 
 # ╔═╡ 3fd3f317-d292-4572-a335-75ca91bc7793
 begin
@@ -95,25 +98,27 @@ For any given value of $\lambda$, we can compute the minimizer $\Theta^\star_\la
 """
 
 # ╔═╡ fc940c6c-5517-4eb2-b724-99960f6b9e93
-function argminΘf(λ ; Θ₀::V = Array{U}([0.]))
+begin
+function argmin_f(λ ; Θ₀::AbstractVector)
     opt = Descent()
     Θ = copy(Θ₀)
-    for _ in 1:1_000
+    for _ in 1:2_050
         g = Zygote.gradient(Θ) do Θ
             f(Θ ; λ)
         end
         Flux.update!(opt, Θ, g...)
     end
     return Θ
-end;
-
-# ╔═╡ 1dfbe76f-39ac-4d78-a01b-cfc29aae5f5e
-argminΘf(λ, N::Integer) = argminΘf(λ, Θ₀ = Array{U}(zeros(N))) ;
+end
+argmin_f(λ, N::Integer) = argmin_f(λ ; Θ₀ = Array{U}(randn(N))) 
+argmin_f(λ) = argmin_f(λ, 1)
+end ;
 
 # ╔═╡ c78facd5-d78f-4f7a-9e67-75fa1983b407
-let λ = π
+# ╠═╡ show_logs = false
+let λ = randn()
 	N = 10
-	@assert all(argminΘf(λ, N) .≈ λ)
+	@assert all(argmin_f(λ, N) .≈ λ)
 end
 
 # ╔═╡ 15e9045f-cf61-4c9c-9ea2-e0bf4a63e9e8
@@ -123,8 +128,11 @@ md"""
 Let $g(\lambda) = \min_\Theta f_\lambda(\Theta) = f_\lambda(\Theta^\star_\lambda)$
 """
 
-# ╔═╡ c12a362e-2ca1-438f-92e0-bc0d1673fe31
-g(λ) = f(argminΘf(λ) ; λ) ;
+# ╔═╡ 9d629ee8-6530-4216-9083-a8fc558f8fb7
+begin
+g(λ, N) = f(argmin_f(λ, N) ; λ)
+g(λ) = g(λ, 1)
+end ;
 
 # ╔═╡ c8b10d6e-ba40-4cb2-8c20-ff70f1322b3d
 md"""
@@ -133,6 +141,10 @@ Recall that
 $f_\lambda(\Theta) = \|\Theta-\lambda\|_2^2 + |\lambda|^2$
 
 From our definition of $f_\lambda$ above, we know that $g(\lambda) = \lambda^2$ analytically. We verify this numerically."""
+
+# ╔═╡ 8359f15b-0a3c-468f-8494-8715062f811a
+# ╠═╡ show_logs = false
+@assert all(g.(test_range) .≈ test_range.^2)
 
 # ╔═╡ 2e444ede-6db6-4b63-84aa-21b399ce696b
 md"""Using forward-mode differentiation, we can now compute the derivative of $g$ with respect to $\lambda$:"""
@@ -146,28 +158,15 @@ This works for higher dimensions as well:"""
 
 # ╔═╡ d37298c8-ba86-41ec-9b7a-c00e2177b464
 begin
-function g(λ, N)
-	f(argminΘf(λ, N) ; λ)
-end
-
-function ∂g(λ, N)
-	ForwardDiff.derivative(λ) do λ
-		g(λ, N)
-	end
-end
+∂g(λ, N) = ForwardDiff.derivative(λ) do λ; g(λ, N) end
+∂g(λ) = ∂g(λ, 1)
 end ;
 
-# ╔═╡ 8359f15b-0a3c-468f-8494-8715062f811a
-@assert all(g.(test_range) .≈ test_range.^2)
-
-# ╔═╡ 78342550-48d2-47ae-818f-1c0e6d88f81e
-∂g(λ) = ForwardDiff.derivative(g, λ) ;
-
-# ╔═╡ dc58d869-3ea6-4228-8122-3053ed6f7511
+# ╔═╡ 0601375e-7151-4968-a126-c79b5efa30be
 @assert all(∂g.(test_range) .≈ 2test_range)
 
 # ╔═╡ 7957e09a-ecad-4cc2-9a89-5c4c87923c25
-let λ = 1.2, N = 5
+let λ = rand(), N = 5
 	@assert g(λ, N) ≈ λ^2
 	@assert ∂g(λ, N) ≈ 2λ
 end
@@ -202,6 +201,9 @@ begin
 
 	X_val = [Array(dataset[i].features) for i ∈ val_idxs]
 	Y_val = [Flux.onehot(dataset[i].targets[1], classes) |> float for i ∈ val_idxs]
+	
+	X_test = [Array(dataset[i].features) for i ∈ test_idxs]
+	Y_test = [Flux.onehot(dataset[i].targets[1], classes) |> float for i ∈ test_idxs]
 end ;
 
 # ╔═╡ 508ace1e-afc2-4482-91f2-9d308dc5c5f6
@@ -248,11 +250,12 @@ function loss(Θ, X::T, Y::T ; λ) where T
 		ŷᵢ = NN(Θ)(xᵢ)
 		crossentropy(ŷᵢ, yᵢ)
 	end
+	λ = exp(λ)  # To make λ > 0
 	return mean(errs) + λ*mean(abs, Θ)
 end ;
 
 # ╔═╡ 36ec1f9c-8038-46eb-aaee-747d4c97bb18
-maxiters = 200 ;
+maxiters = 4_000 ;
 
 # ╔═╡ 8d8671ec-86e9-407b-88dc-710258398a86
 md"""
@@ -262,13 +265,34 @@ We train the neural network with a standard gradient descent training loop. For 
 """
 
 # ╔═╡ a9cea07e-948c-43be-b3dd-dae29a78aeb5
-function train(λ, X::AbstractVector, Y::AbstractVector ; Θ′ = copy(Θ))
+function train(λ ; Θ′ = copy(Θ), maxiters = maxiters)
 	η = 1e-4
-    @progress for _ in 1:maxiters
-        ΔΘ = Zygote.gradient(Θ′) do Θ
-            loss(Θ, X, Y ; λ)
-		end[1]
-        Θ′ = Θ′ - η * ΔΘ
+	tol = 1e-7
+	min_val_loss = Inf
+	last_val = Inf
+    @progress for i in 1:maxiters
+        (l,ΔΘ) = Zygote.withgradient(Θ′) do Θ
+            loss(Θ, X_train, Y_train ; λ)
+		end
+		val_loss = loss(Θ, X_val, Y_val ; λ)
+
+		# Convergence checks
+		if val_loss > min_val_loss
+			@info "Validation increasing"
+			break
+		else
+			min_val_loss = val_loss
+		end
+		if i > 10 && abs(last_val - l) < tol
+			@info "Converged after $(i-1) iterations with abs tol $tol" last=last_val curr=l
+			@show last_val
+			@show l
+			break
+		else
+			last_val = l
+		end
+
+        Θ′ = Θ′ - η * ΔΘ[1]
     end
     return Θ′
 end ;
@@ -277,9 +301,9 @@ end ;
 md"This is a standard training loop and behaves as expected."
 
 # ╔═╡ 76078acb-bdc9-4122-99a7-0169138aef99
-let λ = 1e-2
+let λ = randn()
 	before = loss(Θ, X_train, Y_train ; λ)
-	Θᵒᵖᵗ = train(λ, X_train, Y_train)
+	Θᵒᵖᵗ = train(λ ; maxiters = 10)
 	after = loss(Θᵒᵖᵗ, X_train, Y_train ; λ)
 
 	@info "Loss difference: $(before-after)" before=before after=after
@@ -288,18 +312,18 @@ end
 
 # ╔═╡ 17b82aa8-39a9-4c4e-a41f-5dfd3bf9ce3a
 md"""## 
-After (or during) training, we can evaluate the validation loss.
+After training, we can evaluate the test loss.
 """
 
 # ╔═╡ 38960a16-c49f-49f7-9cf7-319bc3e4e272
-function validation_loss(λ)
-	Θᵒᵖᵗ = train(λ, X_train, Y_train)
-	return loss(Θᵒᵖᵗ, X_val, Y_val ; λ)
+function test_loss(λ ; maxiters = maxiters)
+	Θᵒᵖᵗ = train(λ ; maxiters)
+	return loss(Θᵒᵖᵗ, X_test, Y_test ; λ)
 end ;
 
 # ╔═╡ 701a1065-23f5-4ba9-a565-67eaccd74c2c
 # ╠═╡ show_logs = false
-validation_loss(1e-2)
+test_loss(randn() ; maxiters = 10)
 
 # ╔═╡ 8a85ffa5-2de4-4b8c-a322-5b68d84f7f17
 md"""
@@ -308,10 +332,13 @@ Just like before, we can use forward mode differentiation to differentiate the v
 """
 
 # ╔═╡ 40ca36f8-ce8e-47cb-9a93-9a585bb815ab
-∂validation_loss(λ) = ForwardDiff.derivative(validation_loss, λ) ;
+begin
+∂test_loss(λ ; kw...) = ForwardDiff.derivative(λ) do λ; test_loss(λ ; kw...) end 
+∂test_loss(λ) = ∂test_loss(λ ; maxiters = maxiters)
+end;
 
 # ╔═╡ 580f758f-f443-4ddb-a040-1aafd9d4b758
-∂validation_loss(1e-2)
+∂test_loss(randn() ; maxiters = 10)
 
 # ╔═╡ fffb27d2-a354-4b50-b0ae-cec66d0c2a39
 md"""
@@ -320,24 +347,83 @@ md"""
 We can now run an optimizer on the hyperparameter $\lambda$.
 """
 
-# ╔═╡ 10d48c95-3c85-475c-b700-5e87c9aea22d
-let λ = 1e-2
-	η = 1e-2
-	before = validation_loss(λ)
-	
-	@progress for _ ∈ 1:5
-		Δλ = ∂validation_loss(λ)
-		λ = λ - η * Δλ
+# ╔═╡ c1e02298-0e2c-41e8-8ddf-ce1d4647859d
+tol_λ = 1e-6
+
+# ╔═╡ 2d681f34-18b7-44a4-bd35-da8899a556ad
+let λ = 0.
+	η = 0.1
+
+	before = test_loss(λ)
+
+	last_λ = Inf
+	for i ∈ 1:15
+		Δλ = ∂test_loss(λ)
+		# Gradient descent step
+		λ = λ - η*Δλ
+		if i ≥ 3 && abs(λ - last_λ) < tol_λ
+			@info "Hyperparameter tuning converged"
+			break
+		else
+			last_λ = λ
+		end
 	end
 	
-	after = validation_loss(λ)
-	@info "Difference in validation loss is $(before-after)" before=before after_=after λ_final=λ
+	after = test_loss(λ)
+	@info "Difference in test loss is $(before-after)" before=before after_=after λ_final=λ λ_exp = exp(λ)
+end
+
+# ╔═╡ b9280b33-8da5-4d17-9124-28b10c42aa43
+md"This process is painfully slow, because we have to wait for one full training cycle between each update to $\lambda$. If only there were a way of accelerating this..."
+
+# ╔═╡ 2477e412-89cc-4970-99bd-ee0c58b5052c
+md"""
+> Because of the magic of dual numbers, we can actually compute the second derivative and run Newton's method with *no* performance penalty, only a small bit of memory overhead. This has the added benefit of dramatically reducing the number of training cycles.
+>
+> The same goes for general $n$-th order derivatives, if we wanted to run an $n$-th order optimization method.
+"""
+
+# ╔═╡ a02fe1c6-ec7f-450a-a125-2da5f31c1611
+begin
+∂2test_loss!(res::DiffResult, λ ; maxiters) = ForwardDiff.derivative!(res, x->∂test_loss(x ; maxiters), λ)
+∂2test_loss!(res::DiffResult, λ) = ∂2test_loss!(res, λ ; maxiters = maxiters)
+end ;
+
+# ╔═╡ 10d48c95-3c85-475c-b700-5e87c9aea22d
+let λ = 0.
+	η = 0.1
+	ϵ = eps(λ)
+
+	before = test_loss(λ)
+	
+	dr = DiffResult(0., 0.,)
+	last_λ = Inf
+	
+	for i ∈ 1:10
+		dr = ∂2test_loss!(dr, λ)
+		λ′ = dr.value
+		λ″ = dr.derivs[1]
+
+		# Newton update
+		λ = λ - η*(λ′/(λ″+ϵ))
+		
+		if i ≥ 3 && abs(λ - last_λ) < tol_λ
+			@info "Hyperparameter tuning converged"
+			break
+		else
+			last_λ = λ
+		end
+	end
+	
+	after = test_loss(λ)
+	@info "Difference in test loss is $(before-after)" before=before after_=after λ_final=λ λ_exp = exp(λ)
 end
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+DiffResults = "163ba53b-c6d8-5494-b064-1a9d43ac40c5"
 Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 MLDatasets = "eb30cadb-4394-5ae3-aed4-317e484a6458"
@@ -349,6 +435,7 @@ Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 
 [compat]
 DataFrames = "~1.3.4"
+DiffResults = "~1.0.3"
 Flux = "~0.13.3"
 ForwardDiff = "~0.10.30"
 MLDatasets = "~0.7.2"
@@ -1395,6 +1482,7 @@ uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
 # ╟─3fd3f317-d292-4572-a335-75ca91bc7793
 # ╟─c698281c-23b1-48c1-90cc-0b844bedd367
 # ╟─76a1e2d9-58a5-4761-88de-f793733b97b7
+# ╟─c15b83ea-a4e0-440e-bab0-a61c9ee478f7
 # ╟─2a8cd318-2c70-463e-9ecc-053c076ca5bc
 # ╟─eb864c8e-e8db-4863-b0dc-a258c5de65b6
 # ╟─da773c77-db69-4595-bab2-2f6ac3653645
@@ -1403,15 +1491,13 @@ uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
 # ╟─3264e605-d411-4681-87df-2e8d4517dd23
 # ╠═fc940c6c-5517-4eb2-b724-99960f6b9e93
 # ╠═c78facd5-d78f-4f7a-9e67-75fa1983b407
-# ╟─1dfbe76f-39ac-4d78-a01b-cfc29aae5f5e
 # ╟─15e9045f-cf61-4c9c-9ea2-e0bf4a63e9e8
-# ╠═c12a362e-2ca1-438f-92e0-bc0d1673fe31
+# ╠═9d629ee8-6530-4216-9083-a8fc558f8fb7
 # ╟─c8b10d6e-ba40-4cb2-8c20-ff70f1322b3d
 # ╠═8359f15b-0a3c-468f-8494-8715062f811a
 # ╟─2e444ede-6db6-4b63-84aa-21b399ce696b
-# ╠═78342550-48d2-47ae-818f-1c0e6d88f81e
 # ╟─3a06f2ab-b917-4657-8000-c29b8224d027
-# ╠═dc58d869-3ea6-4228-8122-3053ed6f7511
+# ╠═0601375e-7151-4968-a126-c79b5efa30be
 # ╟─3c856bcf-29f9-4753-a2bb-985580fccc89
 # ╠═d37298c8-ba86-41ec-9b7a-c00e2177b464
 # ╠═7957e09a-ecad-4cc2-9a89-5c4c87923c25
@@ -1423,22 +1509,27 @@ uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
 # ╟─508ace1e-afc2-4482-91f2-9d308dc5c5f6
 # ╟─f74c8718-8061-4071-a6c0-3879c47d9960
 # ╟─5cb12a32-8636-4e1d-9fcb-b823b5d6fad5
-# ╠═108516ca-5a64-4aea-a078-437eb55f7f28
+# ╟─108516ca-5a64-4aea-a078-437eb55f7f28
 # ╟─e4377d81-593f-4ea3-8364-20a65a1b1275
 # ╠═639a1bb0-1a29-48ab-b35c-e56b3f57b52c
 # ╠═f77ab122-3aaf-47b1-ae46-edf17c20fc5c
 # ╟─8d8671ec-86e9-407b-88dc-710258398a86
-# ╠═36ec1f9c-8038-46eb-aaee-747d4c97bb18
 # ╠═a9cea07e-948c-43be-b3dd-dae29a78aeb5
+# ╠═36ec1f9c-8038-46eb-aaee-747d4c97bb18
 # ╟─ba997393-48dc-4277-86d7-2d62155d6b8d
 # ╠═76078acb-bdc9-4122-99a7-0169138aef99
 # ╟─17b82aa8-39a9-4c4e-a41f-5dfd3bf9ce3a
 # ╠═38960a16-c49f-49f7-9cf7-319bc3e4e272
-# ╟─701a1065-23f5-4ba9-a565-67eaccd74c2c
+# ╠═701a1065-23f5-4ba9-a565-67eaccd74c2c
 # ╟─8a85ffa5-2de4-4b8c-a322-5b68d84f7f17
 # ╠═40ca36f8-ce8e-47cb-9a93-9a585bb815ab
 # ╠═580f758f-f443-4ddb-a040-1aafd9d4b758
 # ╟─fffb27d2-a354-4b50-b0ae-cec66d0c2a39
+# ╠═c1e02298-0e2c-41e8-8ddf-ce1d4647859d
+# ╠═2d681f34-18b7-44a4-bd35-da8899a556ad
+# ╟─b9280b33-8da5-4d17-9124-28b10c42aa43
+# ╟─2477e412-89cc-4970-99bd-ee0c58b5052c
+# ╠═a02fe1c6-ec7f-450a-a125-2da5f31c1611
 # ╠═10d48c95-3c85-475c-b700-5e87c9aea22d
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
