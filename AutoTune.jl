@@ -2,12 +2,9 @@
 # v0.19.9
 
 #> [frontmatter]
-#> author = "Eric Brown"
-#> title = "AutoTune"
+#> title = "Eric Brown"
 #> date = "2022-06-24"
-#> tags = ["julia", "machine learning", "hyperparameters", "optimization", "optimisation", "data science", "mathematics", "applied mathematics"]
-#> description = "A system for automatic hyperparameter tuning in Julia"
-#> contact = "eric@ebrown.net"
+#> description = "AutoTune -- Automatic Hyperparameter Tuning in Julia"
 
 using Markdown
 using InteractiveUtils
@@ -59,19 +56,38 @@ end;
 # ╔═╡ 2a8cd318-2c70-463e-9ecc-053c076ca5bc
 md"""
 # Introduction
+$\DeclareMathOperator*{\argmin}{\arg\!\min }$
+Let $\mathcal N_\Theta : U\subseteq\mathbb R^n\to\mathbb R^m$ be a model with parameters $\Theta\in\mathbb R^d$ on a dataset $(X,Y) = \{(x_i,y_i)\}_{i=1}^N \subset \mathbb R^n\times\mathbb R^m$. Split this dataset into validation and training sets $(X_{val},Y_{val})$ and $(X_{train},Y_{train})$.
 
-The hyperparameter problem can be phrased as follows:
+Let $d_e$ be a metric on $\mathbb R^m$. We call it *prediction error*. Define 
 
-$\lambda^* = \min_\lambda \mathscr L_{test}(\lambda)$
-where
+$$d(x_i,y_i,\Theta) = d_e(\mathcal N_\Theta(x_i),y_i)$$
+to be the *model error*, and let $d(X,Y,\Theta)$ be the average model error over $(X,Y)$.
 
-$$\mathscr L_{test}(\lambda) = \min_i \mathscr L_{val}(\theta^{(i)}, \lambda)$$
-where $\{\theta^{(i)}\}_{i=1}^N$ is a sequence obtained from an iterative optimization procedure (e.g. ADAM) giving
+Define a regularized loss function $\mathscr L(\lambda,\Theta,X,Y) = d(X,Y,\Theta) + \lambda R(\Theta)$ for some regularization function $R$. We generally consider $\lambda$ to be fixed and use some optimization strategy to find
 
-$\theta^{(i+1)} = step(\mathscr L, \mathbf x, \mathbf y,\theta^{(i)}, \lambda)$
-for fixed dataset $\mathbf x, \mathbf y$, loss (objective) function $\mathscr L$ and given $\theta^{(1)}$.
+$$\begin{align*}
+    \Theta^*_\lambda 
+    &= \argmin_\Theta \mathscr L(\lambda,\Theta, X_{train}, Y_{train}) \\
+    &= \argmin_\Theta \big\{ d(X_{train}, Y_{train},\Theta) + R(\lambda, \Theta) \big\}
+\end{align*}$$
 
-Generally, $\mathscr L_{val}$ and $\mathscr L_{test}$ are identical to $\mathscr L$ but with different datasets $(\mathbf x_{val}, \mathbf y_{val})$ and $(\mathbf x_{test}, \mathbf y_{test})$.
+The quality of choice of $\lambda$ is done by evaluating the *validation loss*:
+
+$$\mathscr L_{val}(\lambda) = d(X_{val},Y_{val},\Theta_\lambda^*)$$
+
+In essence, the *hyperparameter optimization problem* is to find
+$$\lambda^* = \argmin_\lambda \mathscr L_{val}(\lambda).$$
+
+Thus $\lambda^*$ can be expressed as a minimizer of minimizers:
+
+$$\begin{align*}
+    \lambda^* = \argmin_\lambda d\big(X_{val},Y_{val},\argmin_\Theta d(X_{train}, Y_{train},\Theta) + R(\lambda, \Theta)\big)
+\end{align*}$$
+
+Each $\argmin$ computation typically takes the form of a training loop with some optimization strategy.
+
+In the following, we show a method for differentiating the validation loss with respect to $\lambda$ and implement a gradient-based hyperparameter updated scheme.
 """
 
 # ╔═╡ eb864c8e-e8db-4863-b0dc-a258c5de65b6
@@ -182,6 +198,9 @@ $\Theta$ are the network parameters and $\Theta^\star_\lambda$ is the optimum va
 # ╔═╡ 1dc7bb61-c071-420f-bd31-aa98de06faa7
 md"""In the example below, we use a bilayer feedforward network to predict entries in the Iris dataset."""
 
+# ╔═╡ 11eacc27-b8b1-4021-9c0e-5f8b77c39b09
+ENV["DATADEPS_ALWAYS_ACCEPT"] = true
+
 # ╔═╡ deddd641-d0c4-4635-9dea-e8055675386b
 begin
 	dataset = Iris()
@@ -255,7 +274,7 @@ function loss(Θ, X::T, Y::T ; λ) where T
 end ;
 
 # ╔═╡ 36ec1f9c-8038-46eb-aaee-747d4c97bb18
-maxiters = 4_000 ;
+maxiters = 100 ;
 
 # ╔═╡ 8d8671ec-86e9-407b-88dc-710258398a86
 md"""
@@ -418,6 +437,19 @@ let λ = 0.
 	after = test_loss(λ)
 	@info "Difference in test loss is $(before-after)" before=before after_=after λ_final=λ λ_exp = exp(λ)
 end
+
+# ╔═╡ 755768bd-6b1a-4fac-b63c-3f179afadf16
+md"""
+# Conclusion
+
+This scheme has the following advantages:
+1. If the model is retrained with any degree of frequency (e.g. weekly), then gradients of hyperparameters can be collected during existing training cycles.
+2. Homogeneous second partial derivative information is available for free, allowing use of any diagonal-Hessian quasi-Newton update method.
+    * Arbitrary derivatives are available, so higher-order methods could also be implemented, such as a quasi-Halley method if desired.
+3. No loss in performance and minimal constant memory overhead required.
+
+Implementation as a Julia package on top of Flux.jl will require no changes to the base package and is currently a goal. Implementation within Python libraries such as PyTorch or TensorFlow will require forking.
+"""
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -1503,6 +1535,7 @@ uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
 # ╠═7957e09a-ecad-4cc2-9a89-5c4c87923c25
 # ╟─36d1685c-ca88-4665-94a4-4393987adb5d
 # ╟─1dc7bb61-c071-420f-bd31-aa98de06faa7
+# ╟─11eacc27-b8b1-4021-9c0e-5f8b77c39b09
 # ╟─deddd641-d0c4-4635-9dea-e8055675386b
 # ╟─c5d821e1-7d8c-4118-8991-2c0138161a86
 # ╟─a2d0f440-152a-44ac-913d-9485c085908d
@@ -1514,8 +1547,8 @@ uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
 # ╠═639a1bb0-1a29-48ab-b35c-e56b3f57b52c
 # ╠═f77ab122-3aaf-47b1-ae46-edf17c20fc5c
 # ╟─8d8671ec-86e9-407b-88dc-710258398a86
-# ╠═a9cea07e-948c-43be-b3dd-dae29a78aeb5
 # ╠═36ec1f9c-8038-46eb-aaee-747d4c97bb18
+# ╠═a9cea07e-948c-43be-b3dd-dae29a78aeb5
 # ╟─ba997393-48dc-4277-86d7-2d62155d6b8d
 # ╠═76078acb-bdc9-4122-99a7-0169138aef99
 # ╟─17b82aa8-39a9-4c4e-a41f-5dfd3bf9ce3a
@@ -1531,5 +1564,6 @@ uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
 # ╟─2477e412-89cc-4970-99bd-ee0c58b5052c
 # ╠═a02fe1c6-ec7f-450a-a125-2da5f31c1611
 # ╠═10d48c95-3c85-475c-b700-5e87c9aea22d
+# ╟─755768bd-6b1a-4fac-b63c-3f179afadf16
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
